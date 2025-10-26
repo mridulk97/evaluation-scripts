@@ -281,13 +281,13 @@ Notes:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=50,
-        help="Batch size for FID calculation (default: 50)"
+        default=128,
+        help="Batch size for FID calculation (default: 128)"
     )
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
+        default=12,
         help="Number of data loading workers (default: 4)"
     )
     parser.add_argument(

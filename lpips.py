@@ -30,8 +30,10 @@ class ClassBasedPairedImageDataset(Dataset):
 
         # Create paired indices based on class
         self.paired_images = []
-        for class_name in self.real_images_by_class.keys():
-            assert class_name in self.generated_images_by_class
+        # for class_name in self.real_images_by_class.keys():
+            # assert class_name in self.generated_images_by_class
+        for class_name in self.generated_images_by_class.keys():
+            assert class_name in self.real_images_by_class
 
             real_images = self.real_images_by_class[class_name]
             generated_images = self.generated_images_by_class[class_name]

@@ -80,13 +80,20 @@ def main():
                         help='Directory containing label subfolders with images')
     parser.add_argument('--output_file', '-o', type=str, default=None,
                         help='Optional CSV file to save detailed results')
+    parser.add_argument('--bioclip_version', '-b', type=str, default='bioclip-2',
+                        help='Version of BioCLIP to use (default: bioclip-2)')
     args = parser.parse_args()
 
     # Load the model, preprocessors, and tokenizer
     global model, preprocess_train, preprocess_val, tokenizer
-    print("Loading BioCLIP model...")
-    model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip-2')
-    tokenizer = open_clip.get_tokenizer('hf-hub:imageomics/bioclip-2')
+    if args.bioclip_version == 'bioclip-2':
+        print("Loading BioCLIP - 2 model...")
+        model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip-2')
+        tokenizer = open_clip.get_tokenizer('hf-hub:imageomics/bioclip-2')
+    else:
+        print("Loading BioCLIP - 1 model...")
+        model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip')
+        tokenizer = open_clip.get_tokenizer('hf-hub:imageomics/bioclip')
     print("Model loaded successfully!")
 
     # Load images from directories
@@ -133,3 +140,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# Example usage:
+# python evaluation-scripts/bioclip2_inat.py --input_dir /path/to/generated/images
