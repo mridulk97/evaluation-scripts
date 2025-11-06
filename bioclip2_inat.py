@@ -15,6 +15,7 @@ model = None
 preprocess_train = None
 preprocess_val = None
 tokenizer = None
+device = None
 
 
 def load_images_from_directories(directory):
@@ -56,22 +57,34 @@ def load_images_from_directories(directory):
     return images_dict
 
 
-def calculate_clip_score(image, prompt):
-    image = preprocess_val(image).unsqueeze(0)
-    text = tokenizer([prompt])
-
-    # Encode image and text features and normalize
-    with torch.no_grad(), torch.cuda.amp.autocast():
-        image_features = model.encode_image(image)
-        text_features = model.encode_text(text)
-        image_features /= image_features.norm(dim=-1, keepdim=True)
-        text_features /= text_features.norm(dim=-1, keepdim=True)
-
-        # Compute the similarity score for the single prompt
-        score = (image_features @ text_features.T).item()
+def calculate_clip_score_batch(images, prompts, batch_size=32):
+    """
+    Calculate CLIP scores for a batch of images and prompts.
+    More efficient than processing one at a time.
+    """
+    scores = []
     
-    # print(f"Cosine similarity score for the prompt '{prompt}':", score)
-    return round(float(score * 100), 4)
+    # Process in batches
+    for i in range(0, len(images), batch_size):
+        batch_images = images[i:i + batch_size]
+        batch_prompts = prompts[i:i + batch_size]
+        
+        # Preprocess images and stack them
+        image_tensors = torch.stack([preprocess_val(img) for img in batch_images]).to(device)
+        text_tokens = tokenizer(batch_prompts).to(device)
+        
+        # Encode image and text features and normalize
+        with torch.no_grad(), torch.cuda.amp.autocast():
+            image_features = model.encode_image(image_tensors)
+            text_features = model.encode_text(text_tokens)
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+            text_features /= text_features.norm(dim=-1, keepdim=True)
+            
+            # Compute similarity scores (diagonal for paired samples)
+            batch_scores = (image_features * text_features).sum(dim=-1) * 100
+            scores.extend(batch_scores.cpu().tolist())
+    
+    return scores
 
 
 def main():
@@ -82,10 +95,16 @@ def main():
                         help='Optional CSV file to save detailed results')
     parser.add_argument('--bioclip_version', '-b', type=str, default='bioclip-2',
                         help='Version of BioCLIP to use (default: bioclip-2)')
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help='Batch size for processing images (default: 32)')
     args = parser.parse_args()
 
+    # Set up device
+    global model, preprocess_train, preprocess_val, tokenizer, device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
     # Load the model, preprocessors, and tokenizer
-    global model, preprocess_train, preprocess_val, tokenizer
     if args.bioclip_version == 'bioclip-2':
         print("Loading BioCLIP - 2 model...")
         model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip-2')
@@ -94,6 +113,10 @@ def main():
         print("Loading BioCLIP - 1 model...")
         model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip')
         tokenizer = open_clip.get_tokenizer('hf-hub:imageomics/bioclip')
+    
+    # Move model to GPU
+    model = model.to(device)
+    model.eval()  # Set to evaluation mode
     print("Model loaded successfully!")
 
     # Load images from directories
@@ -104,22 +127,28 @@ def main():
     total_number = 0
     results = []
 
-    # Parse folder name to extract all 7 taxonomy levels
-    # Expected format: kingdom_phylum_class_order_family_genus_species
+    # Process images in batches for efficiency
+    print("\nProcessing images...")
     for label, images in tqdm(images_dict.items()):
         parts = label.split("_")
         prompt = ' '.join(parts[1:])
         
-        for image in images:
-            sd_clip_score = calculate_clip_score(image, prompt)
-            total_number += 1
-            total_score += sd_clip_score
-            
-            if args.output_file:
+        # Create a list of prompts (same prompt for all images in this label)
+        prompts = [prompt] * len(images)
+        
+        # Calculate scores in batches
+        scores = calculate_clip_score_batch(images, prompts, batch_size=args.batch_size)
+        
+        # Accumulate results
+        total_number += len(scores)
+        total_score += sum(scores)
+        
+        if args.output_file:
+            for score in scores:
                 results.append({
                     'label': label,
                     'prompt': prompt,
-                    'score': sd_clip_score
+                    'score': round(score, 4)
                 })
 
     # Print summary
